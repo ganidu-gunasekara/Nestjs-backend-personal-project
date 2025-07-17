@@ -62,4 +62,10 @@ export class CreateProductDto {
   @ArrayNotEmpty({ message: 'Sizes array must not be empty' })
   @IsString({ each: true, message: 'Each size must be a string' })
   sizes: string[];
+
+  @IsDefined({ message: 'Status is required' })
+  @IsString({ message: 'Status must be a string' })
+  @IsNotEmpty({ message: 'Status cannot be empty' })
+  @IsIn(['active', 'inactive'], { message: 'Status must be either "active" or "inactive"' })
+  status: string;
 }

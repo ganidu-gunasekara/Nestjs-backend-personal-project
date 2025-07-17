@@ -11,16 +11,18 @@ import {
   UploadedFile,
   UploadedFiles,
   BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { ProductService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { AnyFilesInterceptor, FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { FilterProductsDto } from './dto/filter-products.dto';
 
 
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly service: ProductService) { }
+  constructor(private readonly productservice: ProductService) { }
 
 
 
@@ -36,7 +38,6 @@ export class ProductsController {
     if (!mainImage) {
       throw new BadRequestException('Main image is required');
     }
-
     if (!images || images.length === 0) {
       throw new BadRequestException('At least one additional image is required');
     }
@@ -44,20 +45,24 @@ export class ProductsController {
     if (images.length + 1 !== 5) {
       throw new BadRequestException('A total of 5 images must be selected');
     }
-
-    return this.service.create(dto, mainImage, images);
+    return this.productservice.create(dto, mainImage, images);
   }
 
 
 
   @Get()
-  findAll() {
-    return this.service.findAll();
+  findAll(@Query() query: FilterProductsDto) {
+    return this.productservice.findAll(query);
   }
 
-  @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: string) {
-    return this.service.findOne(id);
+  @Get('id/:id')
+  findOne(@Param('id') id: string) {
+    return this.productservice.findOne(id);
+  }
+
+  @Get(':slug')
+  findBySlug(@Param('slug') slug: string) {
+    return this.productservice.findBySlug(slug);
   }
 
   @Patch(':slug')
@@ -70,13 +75,13 @@ export class ProductsController {
     const mainImage = files?.find((file) => file.fieldname === 'mainImage');
     const images = files?.filter((file) => file.fieldname === 'images');
 
-    
-    return this.service.updateBySlug(slug, dto, mainImage, images);
+
+    return this.productservice.updateBySlug(slug, dto, mainImage, images);
   }
 
 
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: string) {
-    return this.service.remove(id);
+    return this.productservice.remove(id);
   }
 }

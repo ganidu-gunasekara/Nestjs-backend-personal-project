@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Prisma } from 'generated/prisma';
+import { Prisma, } from 'generated/prisma';
+import { FilterOptions } from './interfaces/filter-options.interface';
 
 @Injectable()
 export class ProductRepository {
@@ -43,4 +44,33 @@ export class ProductRepository {
   delete(id: string) {
     return this.prisma.product.delete({ where: { id } });
   }
+
+  async findMany(filters: FilterOptions) {
+    const { category, size, sort, page, limit } = filters;
+
+    const where: any = {};
+    if (category) where.category = category;
+    if (size)     where.sizes = { hasSome: size };
+
+    let orderBy: Prisma.ProductOrderByWithRelationInput | undefined;
+
+    if (sort === 'price_asc') {
+      orderBy = { price: 'asc'};
+    } else if (sort === 'price_desc') {
+      orderBy = { price: 'desc'};
+    }
+
+    return this.prisma.product.findMany({
+      where,
+      orderBy,
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+  }
+
+  async count(where: any) {
+    return this.prisma.product.count({ where });
+  }
+
+
 }

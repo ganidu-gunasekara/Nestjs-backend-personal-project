@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import slugify from 'slugify';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { FilterProductsDto } from './dto/filter-products.dto';
 
 @Injectable()
 export class ProductService {
@@ -39,9 +40,23 @@ export class ProductService {
   }
 
 
-  findAll() {
-    return this.repo.findAll();
-  }
+  async findAll(dto: FilterProductsDto) {
+    const items = await this.repo.findMany(dto);
+    const total = await this.repo.count({
+      category: dto.category,
+      sizes: dto.size ? { hasSome: dto.size } : undefined,
+    });
+
+    return {
+      items,
+      meta: {
+        total,
+        page: dto.page,
+        limit: dto.limit,
+        totalPages: Math.ceil(total / dto.limit),
+      },
+    }
+  };
 
   async findOne(id: string) {
     const product = await this.repo.findById(id);
@@ -49,48 +64,55 @@ export class ProductService {
     return product;
   }
 
+  async findBySlug(slug: string) {
+    const product = await this.repo.findBySlug(slug);
+    if (!product) throw new NotFoundException(`Product slug ${slug} not found`);
+    return product;
+  }
+
   async updateBySlug(
-  slug: string,
-  dto: UpdateProductDto,
-  mainImage?: Express.Multer.File,
-  images?: Express.Multer.File[]
-) {
-  const existingProduct = await this.repo.findBySlug(slug);
-  if (!existingProduct) {
-    throw new NotFoundException('Product not found');
-  }
-
-  if (dto.productNo && dto.productNo !== existingProduct.productNo) {
-    const existing = await this.repo.findOneByProductNo(dto.productNo);
-    if (existing) {
-      throw new BadRequestException('Product number must be unique');
+    slug: string,
+    dto: UpdateProductDto,
+    mainImage?: Express.Multer.File,
+    images?: Express.Multer.File[]
+  ) {
+    const existingProduct = await this.repo.findBySlug(slug);
+    if (!existingProduct) {
+      throw new NotFoundException('Product not found');
     }
+
+    if (dto.productNo && dto.productNo !== existingProduct.productNo) {
+      const existing = await this.repo.findOneByProductNo(dto.productNo);
+      if (existing) {
+        throw new BadRequestException('Product number must be unique');
+      }
+    }
+
+    const updatedData: Partial<UpdateProductDto> & { [key: string]: any } = { ...dto };
+
+    if (dto.name && dto.name !== existingProduct.name) {
+      updatedData.slug = await this.generateUniqueSlug(dto.name, this.prisma);
+    }
+
+    if (mainImage) {
+      updatedData.mainImageUrl = this.saveAndGetUrl(mainImage);
+    }
+
+    const keptImageUrls = dto.keepImageUrls || [];
+    const newImageUrls = images?.map((file) => this.saveAndGetUrl(file)) || [];
+    const combinedImageUrls = [...keptImageUrls, ...newImageUrls];
+
+    if (combinedImageUrls.length > 0 && combinedImageUrls.length !== 4) {
+      throw new BadRequestException('Exactly 4 images must be provided in total (existing + new).');
+    }
+
+    if (combinedImageUrls.length > 0) {
+      updatedData.imageUrls = combinedImageUrls;
+    }
+    delete updatedData.keepImageUrls;
+    delete updatedData.keepMainImageUrl
+    return this.repo.updateBySlug(slug, updatedData);
   }
-
-  const updatedData: Partial<UpdateProductDto> & { [key: string]: any } = { ...dto };
-
-  if (dto.name && dto.name !== existingProduct.name) {
-    updatedData.slug = await this.generateUniqueSlug(dto.name, this.prisma);
-  }
-
-  if (mainImage) {
-    updatedData.mainImageUrl = this.saveAndGetUrl(mainImage);
-  }
-
-  const keptImageUrls = dto.keepImageUrls || [];
-  const newImageUrls = images?.map((file) => this.saveAndGetUrl(file)) || [];
-  const combinedImageUrls = [...keptImageUrls, ...newImageUrls];
-
-  if (combinedImageUrls.length > 0 && combinedImageUrls.length !== 4) {
-    throw new BadRequestException('Exactly 4 images must be provided in total (existing + new).');
-  }
-
-  if (combinedImageUrls.length > 0) {
-    updatedData.imageUrls = combinedImageUrls;
-  }
-  delete updatedData.keepImageUrls;
-  return this.repo.updateBySlug(slug, updatedData);
-}
 
 
 

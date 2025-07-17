@@ -7,4 +7,8 @@ export class UpdateProductDto extends PartialType(CreateProductDto) {
     @IsArray({ message: 'keepImageUrls must be an array of strings' })
     @IsString({ each: true, message: 'Each keepImageUrl must be a string' })
     keepImageUrls?: string[];
+
+    @IsOptional()
+    @IsString({ message: 'keepMainImageUrl must be a string' })
+    keepMainImageUrl?: string;
 }

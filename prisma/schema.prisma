@@ -25,6 +25,7 @@ model Product {
   composition    String
   price          Float
   discountPrice  Float?
+  status         String   @default("active")
   mainImageUrl   String
   colors         String[]
   sizes          String[]
