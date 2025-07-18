@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import slugify from 'slugify';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FilterProductsDto } from './dto/filter-products.dto';
+import { cloudinary } from '../cloudinary/cloudinary.config';
 
 @Injectable()
 export class ProductService {
@@ -27,8 +28,8 @@ export class ProductService {
 
     const slug = await this.generateUniqueSlug(dto.name, this.prisma);
 
-    const mainImageUrl = this.saveAndGetUrl(mainImage);
-    const imageUrls = images.map(file => this.saveAndGetUrl(file));
+    const mainImageUrl = await this.saveAndGetUrl(mainImage);
+    const imageUrls = await Promise.all(images.map(file => this.saveAndGetUrl(file)));
     const productData = {
       ...dto,
       mainImageUrl,
@@ -95,11 +96,13 @@ export class ProductService {
     }
 
     if (mainImage) {
-      updatedData.mainImageUrl = this.saveAndGetUrl(mainImage);
+      updatedData.mainImageUrl = await this.saveAndGetUrl(mainImage);
     }
 
     const keptImageUrls = dto.keepImageUrls || [];
-    const newImageUrls = images?.map((file) => this.saveAndGetUrl(file)) || [];
+    const newImageUrls = images
+      ? await Promise.all(images.map(file => this.saveAndGetUrl(file)))
+      : [];
     const combinedImageUrls = [...keptImageUrls, ...newImageUrls];
 
     if (combinedImageUrls.length > 0 && combinedImageUrls.length !== 4) {
@@ -121,29 +124,49 @@ export class ProductService {
     return this.repo.delete(id);
   }
 
-  saveAndGetUrl(file: Express.Multer.File): string {
-    const uploadDir = this.config.get<string>('LOCAL_UPLOAD_PATH') || 'uploads';
+  async saveAndGetUrl(file: Express.Multer.File): Promise<string> {
+    const driver = this.config.get<string>('STORAGE_DRIVER') || 'local';
+    console.log(`Using ${driver} storage for uploads.`);
 
-    // Ensure uploads directory exists
-    const uploadPath = join(__dirname, '..', '..', uploadDir);
-    if (!existsSync(uploadPath)) {
-      mkdirSync(uploadPath, { recursive: true });
+    if (driver === 'cloudinary') {
+      return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'nestjs_uploads',
+            public_id: `${Date.now()}-${file.originalname}`,
+          },
+          (error, result) => {
+            if (error) {
+              console.error('Cloudinary upload error:', error);
+              return reject(new Error('Cloudinary upload failed'));
+            }
+            // guard against undefined
+            if (!result || !result.secure_url) {
+              return reject(new Error('No URL returned from Cloudinary'));
+            }
+
+            resolve(result.secure_url);
+          },
+        );
+        stream.end(file.buffer);
+      });
+    } else {
+      // Fallback to local upload
+      const uploadDir = this.config.get<string>('LOCAL_UPLOAD_PATH') || 'uploads';
+      const uploadPath = join(__dirname, '..', '..', uploadDir);
+
+      if (!existsSync(uploadPath)) {
+        mkdirSync(uploadPath, { recursive: true });
+      }
+
+      const uniqueFilename = `${uuidv4()}-${file.originalname.replace(/\s+/g, '_')}`;
+      const fullPath = join(uploadPath, uniqueFilename);
+
+      writeFileSync(fullPath, file.buffer);
+
+      const baseUrl = this.config.get<string>('APP_URL') || 'http://localhost:4000';
+      return `${baseUrl}/${uploadDir}/${uniqueFilename}`;
     }
-
-    const timestamp = Date.now();
-    const uniqueFilename = `${uuidv4()}-${file.originalname.replace(/\s+/g, '_')}`;
-
-    // Full file path
-    const fullPath = join(uploadPath, uniqueFilename);
-
-    // Write file buffer to disk
-    writeFileSync(fullPath, file.buffer);
-
-    // Build the public URL
-    const baseUrl = this.config.get<string>('APP_URL') || 'http://localhost:4000';
-    const fileUrl = `${baseUrl}/${uploadDir}/${uniqueFilename}`;
-
-    return fileUrl;
   }
 
   async generateUniqueSlug(name: string, prisma: PrismaService): Promise<string> {
